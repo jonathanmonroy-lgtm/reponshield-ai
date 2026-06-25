@@ -1,36 +1,21 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RepoShield AI 🛡️ — Autonomous AI Code Governance & Migration SaaS
 
-## Getting Started
+RepoShield AI is an enterprise-grade B2B SaaS platform designed under Clean Architecture and Domain-Driven Design (DDD) principles. It offers businesses an automated solution to audit technical debt, ensure OWASP security compliance in pull requests, and migrate legacy code seamlessly—all under a **BYOK (Bring Your Own Key)** infrastructure model, resulting in $0 operational AI costs for the platform owner.
 
-First, run the development server:
+## 🚀 Key Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **Autonomous PR Auditor:** Intercepts GitHub webhooks, validates cryptographic signatures (`X-Hub-Signature-256`), parses git diffs, and leverages commercial LLMs (Anthropic/OpenAI) to post inline review comments directly on lines with architectural flaws, technical debt, or vulnerabilities.
+- **Legacy Migration Engine:** Recursively maps legacy code dependency trees (AST analysis) and safely refactors untyped JS, old Python, or legacy PHP into strict, modern TypeScript with automated unit tests.
+- **Enterprise-Grade Security:** Strict Row-Level Security (RLS) on Supabase, end-to-end encryption (AES-256-GCM) for client API keys stored in-memory, and zero-leak logging principles.
+- **Rock-Solid Reliability:** Built with strict TypeScript typing, achieving a production-ready build verified by a comprehensive suite of **93 automated integration and unit tests** running on Vitest.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🏗️ Architecture Design (Clean Architecture + DDD)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The project strictly separates concerns to ensure that enterprise-level scaling, multi-tenancy, and framework migrations can be executed without breaking core business rules:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```text
+src/
+  ├── core/            # Domain: Entities, use cases, repository contracts
+  ├── infrastructure/  # Adapters: Supabase, GitHub API, LLMs, Encryption
+  ├── services/        # Services: AST parsers, migration, diff analyzers
+  └── app/             # Next.js: Secure Multi-tenant Dashboard & API Routes
