@@ -72,7 +72,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const container = buildContainer();
-  const { repos, useCases } = container;
+  const { db, repos, useCases } = container;
 
   const repoResult = await repos.repoRepo.findByGithubRepoId(
     payload.repository.id
@@ -191,11 +191,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // Append one row to audit_logs for dashboard "failures prevented" metrics
+  const audit = auditResult.data;
+  const criticalCount = audit.findings.filter((f) => f.severity === "critical").length;
+  const highCount     = audit.findings.filter((f) => f.severity === "high").length;
+  const mediumCount   = audit.findings.filter((f) => f.severity === "medium").length;
+  const lowCount      = audit.findings.filter((f) => f.severity === "low").length;
+  const infoCount     = audit.findings.filter((f) => f.severity === "info").length;
+
+  const { error: logError } = await db.from("audit_logs").insert({
+    organization_id:    org.id,
+    repository_id:      repo.id,
+    audit_id:           audit.id,
+    pr_number:          payload.number,
+    pr_title:           diffResult.data.prTitle,
+    pr_author:          diffResult.data.prAuthor,
+    findings_count:     audit.findings.length,
+    critical_count:     criticalCount,
+    high_count:         highCount,
+    medium_count:       mediumCount,
+    low_count:          lowCount,
+    info_count:         infoCount,
+    security_score:     audit.securityScore,
+    total_debt_minutes: audit.totalDebtMinutes,
+    prevented_issues:   criticalCount + highCount,
+    ai_provider:        provider,
+    ai_model:           model,
+  });
+  if (logError) {
+    console.error("[audit_log] insert failed:", logError.message);
+  }
+
   // Fire AutoFix asynchronously for enterprise orgs when critical findings exist
-  const criticalFindings = auditResult.data.findings.filter(
-    (f) => f.severity === "critical"
-  );
-  if (criticalFindings.length > 0) {
+  if (criticalCount > 0) {
     const autoFixEngine = new AutoFixEngine(
       aiProvider,
       githubClient,
@@ -207,7 +235,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       prNumber: payload.number,
       headSha: diffResult.data.headSha,
       baseBranch: payload.pull_request.base.ref,
-      criticalFindings,
+      criticalFindings: audit.findings.filter((f) => f.severity === "critical"),
       installationToken: tokenResult.data,
       aiModel: model,
     });
@@ -215,8 +243,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   return NextResponse.json({
     success: true,
-    auditId: auditResult.data.id,
-    findingsCount: auditResult.data.findings.length,
-    securityScore: auditResult.data.securityScore,
+    auditId: audit.id,
+    findingsCount: audit.findings.length,
+    securityScore: audit.securityScore,
   });
 }

@@ -33,6 +33,7 @@ export function buildContainer() {
   const subscriptionRepo = new SupabaseSubscriptionRepository(db);
 
   return {
+    db,
     repos: {
       orgRepo,
       repoRepo,

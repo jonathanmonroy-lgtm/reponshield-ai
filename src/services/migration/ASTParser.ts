@@ -1,4 +1,7 @@
 import type { SourceLanguage } from "@/core/entities/MigrationJob";
+import { ok, err } from "@/lib/types";
+import type { Result } from "@/lib/types";
+import { MAX_FILE_SIZE_BYTES } from "@/lib/constants";
 
 export interface ASTNode {
   type: string;
@@ -54,6 +57,32 @@ const IMPORT_PHP_RE =
 const VAR_RE = /\b(var|let|const)\s+(\w+)/g;
 
 export class ASTParser {
+  /**
+   * Safe entry point: validates input size and wraps parse() in a try/catch so
+   * malformed payloads never propagate uncaught exceptions to callers.
+   */
+  safeParse(
+    filePath: string,
+    content: string,
+    language: SourceLanguage
+  ): Result<ParsedModule> {
+    if (typeof content !== "string") {
+      return err(new Error("File content must be a string"));
+    }
+    if (content.length > MAX_FILE_SIZE_BYTES) {
+      return err(
+        new Error(
+          `File ${filePath} exceeds the ${MAX_FILE_SIZE_BYTES}-byte parse limit (${content.length} chars)`
+        )
+      );
+    }
+    try {
+      return ok(this.parse(filePath, content, language));
+    } catch (error) {
+      return err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
   parse(filePath: string, content: string, language: SourceLanguage): ParsedModule {
     const lines = content.split("\n");
     const lineCount = lines.length;

@@ -1,5 +1,7 @@
 import type { ParsedDiff } from "@/core/use-cases/audit/ProcessPullRequestAudit";
-import { MAX_DIFF_TOKENS } from "@/lib/constants";
+import { MAX_DIFF_TOKENS, MAX_DIFF_SIZE_BYTES } from "@/lib/constants";
+import { ok, err } from "@/lib/types";
+import type { Result } from "@/lib/types";
 
 interface RawLine {
   type: "add" | "del" | "ctx";
@@ -26,6 +28,29 @@ const HUNK_HEADER_RE =
 const DIFF_FILE_RE = /^diff --git a\/(.+) b\/(.+)$/;
 
 export class DiffAnalyzer {
+  /**
+   * Safe entry point for untrusted input: enforces size limits, normalises
+   * CRLF line endings, and returns a typed Result instead of throwing.
+   */
+  safeParse(rawDiff: string): Result<ParsedDiff> {
+    if (typeof rawDiff !== "string") {
+      return err(new Error("Diff payload must be a string"));
+    }
+    if (rawDiff.length > MAX_DIFF_SIZE_BYTES) {
+      return err(
+        new Error(
+          `Diff payload exceeds the ${MAX_DIFF_SIZE_BYTES}-byte limit (received ${rawDiff.length} bytes)`
+        )
+      );
+    }
+    try {
+      const normalised = rawDiff.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      return ok(this.parse(normalised));
+    } catch (error) {
+      return err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
   parse(rawDiff: string): ParsedDiff {
     const files: ParsedFile[] = [];
     let currentFile: ParsedFile | null = null;

@@ -232,6 +232,72 @@ export interface Database {
         };
         Relationships: [];
       };
+      audit_logs: {
+        Row: {
+          id: string;
+          organization_id: string;
+          repository_id: string;
+          audit_id: string;
+          pr_number: number;
+          pr_title: string;
+          pr_author: string;
+          findings_count: number;
+          critical_count: number;
+          high_count: number;
+          medium_count: number;
+          low_count: number;
+          info_count: number;
+          security_score: number;
+          total_debt_minutes: number;
+          prevented_issues: number;
+          ai_provider: string;
+          ai_model: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          repository_id: string;
+          audit_id: string;
+          pr_number: number;
+          pr_title: string;
+          pr_author: string;
+          findings_count?: number;
+          critical_count?: number;
+          high_count?: number;
+          medium_count?: number;
+          low_count?: number;
+          info_count?: number;
+          security_score?: number;
+          total_debt_minutes?: number;
+          prevented_issues?: number;
+          ai_provider: string;
+          ai_model: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          repository_id?: string;
+          audit_id?: string;
+          pr_number?: number;
+          pr_title?: string;
+          pr_author?: string;
+          findings_count?: number;
+          critical_count?: number;
+          high_count?: number;
+          medium_count?: number;
+          low_count?: number;
+          info_count?: number;
+          security_score?: number;
+          total_debt_minutes?: number;
+          prevented_issues?: number;
+          ai_provider?: string;
+          ai_model?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       migration_jobs: {
         Row: {
           id: string;

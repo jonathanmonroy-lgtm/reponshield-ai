@@ -23,9 +23,12 @@ export const DEFAULT_AI_MODEL: Record<string, string> = {
 
 export const MAX_DIFF_TOKENS = 8000;
 export const MAX_FILE_SIZE_BYTES = 500_000;
+export const MAX_DIFF_SIZE_BYTES = 5_000_000; // 5 MB hard cap — prevents OOM on adversarial payloads
 export const WEBHOOK_TIMEOUT_MS = 25_000;
 export const AI_REQUEST_TIMEOUT_MS = 60_000;
 export const MAX_AI_RETRIES = 3;
+export const RETRY_BASE_DELAY_MS = 1_000;
+export const RETRY_MAX_DELAY_MS = 30_000;
 
 export const OWASP_TOP_10 = [
   "A01:2021 - Broken Access Control",
