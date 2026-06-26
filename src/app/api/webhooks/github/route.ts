@@ -5,6 +5,7 @@ import { AIProviderFactory } from "@/infrastructure/ai/AIProviderFactory";
 import { AuditAIEngine } from "@/services/audit/AuditAIEngine";
 import { DiffAnalyzer } from "@/services/audit/DiffAnalyzer";
 import { ProcessPullRequestAuditUseCase } from "@/core/use-cases/audit/ProcessPullRequestAudit";
+import { AutoFixEngine } from "@/services/repair/AutoFixEngine";
 import { buildContainer } from "@/lib/container";
 import type { AIProvider } from "@/lib/types";
 
@@ -16,8 +17,8 @@ interface GitHubPREvent {
   pull_request: {
     title: string;
     user: { login: string };
-    head: { sha: string };
-    base: { sha: string };
+    head: { sha: string; ref: string };
+    base: { sha: string; ref: string };
   };
   repository: {
     id: number;
@@ -91,6 +92,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const org = orgResult.data;
+
+  const subCheck = await useCases.checkSubscription.execute(org.id);
+  if (!subCheck.success) {
+    return NextResponse.json({ error: "Subscription check failed" }, { status: 500 });
+  }
+  if (!subCheck.data) {
+    return NextResponse.json(
+      { error: "No active RepoShield subscription for this organization" },
+      { status: 402 }
+    );
+  }
+
   const provider = org.preferredAiProvider as AIProvider;
   const model = org.preferredAiModel;
 
@@ -176,6 +189,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { error: auditResult.error.message },
       { status: 500 }
     );
+  }
+
+  // Fire AutoFix asynchronously for enterprise orgs when critical findings exist
+  const criticalFindings = auditResult.data.findings.filter(
+    (f) => f.severity === "critical"
+  );
+  if (criticalFindings.length > 0) {
+    const autoFixEngine = new AutoFixEngine(
+      aiProvider,
+      githubClient,
+      repos.subscriptionRepo
+    );
+    autoFixEngine.triggerIfEligible({
+      organizationId: org.id,
+      repoFullName: payload.repository.full_name,
+      prNumber: payload.number,
+      headSha: diffResult.data.headSha,
+      baseBranch: payload.pull_request.base.ref,
+      criticalFindings,
+      installationToken: tokenResult.data,
+      aiModel: model,
+    });
   }
 
   return NextResponse.json({

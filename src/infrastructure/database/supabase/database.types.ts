@@ -190,6 +190,48 @@ export interface Database {
         };
         Relationships: [];
       };
+      subscriptions: {
+        Row: {
+          id: string;
+          organization_id: string;
+          stripe_customer_id: string;
+          stripe_subscription_id: string;
+          status: string;
+          plan_type: string;
+          current_period_start: string;
+          current_period_end: string;
+          cancel_at_period_end: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          stripe_customer_id: string;
+          stripe_subscription_id: string;
+          status: string;
+          plan_type: string;
+          current_period_start: string;
+          current_period_end: string;
+          cancel_at_period_end?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          stripe_customer_id?: string;
+          stripe_subscription_id?: string;
+          status?: string;
+          plan_type?: string;
+          current_period_start?: string;
+          current_period_end?: string;
+          cancel_at_period_end?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       migration_jobs: {
         Row: {
           id: string;

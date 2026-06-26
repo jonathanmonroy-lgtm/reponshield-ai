@@ -53,6 +53,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const org = orgResult.data;
+
+  const subCheck = await useCases.checkSubscription.execute(org.id);
+  if (!subCheck.success) {
+    return NextResponse.json({ error: "Subscription check failed" }, { status: 500 });
+  }
+  if (!subCheck.data) {
+    return NextResponse.json(
+      { error: "No active RepoShield subscription for this organization" },
+      { status: 402 }
+    );
+  }
+
   const provider = org.preferredAiProvider as AIProvider;
 
   const apiKeyResult = await useCases.getDecryptedApiKey.execute(org.id, provider);

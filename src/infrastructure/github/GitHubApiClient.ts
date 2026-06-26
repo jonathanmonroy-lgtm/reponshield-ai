@@ -2,18 +2,25 @@ import { GITHUB_API_BASE, MAX_AI_RETRIES } from "@/lib/constants";
 import type { AuditFinding } from "@/core/entities/PullRequestAudit";
 import { ok, err } from "@/lib/types";
 import type { Result } from "@/lib/types";
-import type { IGitHubClient, PullRequestDiff } from "@/core/repositories/IGitHubClient";
+import type {
+  IGitHubClient,
+  PullRequestDiff,
+  FileContent,
+  CommitResult,
+} from "@/core/repositories/IGitHubClient";
 
 interface GitHubInstallationTokenResponse {
   token: string;
   expires_at: string;
 }
 
+const GH_HEADERS = {
+  Accept: "application/vnd.github+json",
+  "X-GitHub-Api-Version": "2022-11-28",
+} as const;
+
 export class GitHubApiClient implements IGitHubClient {
-  private tokenCache = new Map<
-    string,
-    { token: string; expiresAt: Date }
-  >();
+  private tokenCache = new Map<string, { token: string; expiresAt: Date }>();
 
   constructor(
     private readonly githubAppId: string,
@@ -36,21 +43,14 @@ export class GitHubApiClient implements IGitHubClient {
           `${GITHUB_API_BASE}/app/installations/${installationId}/access_tokens`,
           {
             method: "POST",
-            headers: {
-              Authorization: `Bearer ${jwt}`,
-              Accept: "application/vnd.github+json",
-              "X-GitHub-Api-Version": "2022-11-28",
-            },
+            headers: { Authorization: `Bearer ${jwt}`, ...GH_HEADERS },
           }
         );
-
         if (!response.ok) {
-          const body = await response.text();
           throw new Error(
-            `GitHub API error ${response.status}: ${body}`
+            `GitHub API error ${response.status}: ${await response.text()}`
           );
         }
-
         const data =
           (await response.json()) as GitHubInstallationTokenResponse;
         this.tokenCache.set(installationId, {
@@ -68,7 +68,6 @@ export class GitHubApiClient implements IGitHubClient {
         }
       }
     }
-
     return err(lastError);
   }
 
@@ -78,17 +77,14 @@ export class GitHubApiClient implements IGitHubClient {
     token: string
   ): Promise<Result<PullRequestDiff>> {
     try {
+      const auth = `Bearer ${token}`;
       const [prResponse, diffResponse] = await Promise.all([
         fetch(`${GITHUB_API_BASE}/repos/${repoFullName}/pulls/${prNumber}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-          },
+          headers: { Authorization: auth, ...GH_HEADERS },
         }),
         fetch(`${GITHUB_API_BASE}/repos/${repoFullName}/pulls/${prNumber}`, {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: auth,
             Accept: "application/vnd.github.diff",
             "X-GitHub-Api-Version": "2022-11-28",
           },
@@ -117,9 +113,7 @@ export class GitHubApiClient implements IGitHubClient {
         baseSha: prData.base.sha,
       });
     } catch (error) {
-      return err(
-        error instanceof Error ? error : new Error(String(error))
-      );
+      return err(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -131,25 +125,26 @@ export class GitHubApiClient implements IGitHubClient {
     token: string
   ): Promise<Result<number[]>> {
     const commentIds: number[] = [];
-    const postableFindings = findings.filter(
-      (f) => f.severity === "critical" || f.severity === "high" || f.severity === "medium"
+    const postable = findings.filter(
+      (f) =>
+        f.severity === "critical" ||
+        f.severity === "high" ||
+        f.severity === "medium"
     );
 
-    for (const finding of postableFindings) {
+    for (const finding of postable) {
       try {
-        const body = this.buildCommentBody(finding);
         const response = await fetch(
           `${GITHUB_API_BASE}/repos/${repoFullName}/pulls/${prNumber}/comments`,
           {
             method: "POST",
             headers: {
               Authorization: `Bearer ${token}`,
-              Accept: "application/vnd.github+json",
               "Content-Type": "application/json",
-              "X-GitHub-Api-Version": "2022-11-28",
+              ...GH_HEADERS,
             },
             body: JSON.stringify({
-              body,
+              body: this.buildCommentBody(finding),
               commit_id: headSha,
               path: finding.filePath,
               line: finding.lineEnd,
@@ -157,7 +152,6 @@ export class GitHubApiClient implements IGitHubClient {
             }),
           }
         );
-
         if (response.ok) {
           const data = (await response.json()) as { id: number };
           commentIds.push(data.id);
@@ -170,30 +164,179 @@ export class GitHubApiClient implements IGitHubClient {
     return ok(commentIds);
   }
 
+  async getFileContent(
+    repoFullName: string,
+    filePath: string,
+    ref: string,
+    token: string
+  ): Promise<Result<FileContent>> {
+    try {
+      const safePath = filePath.split("/").map(encodeURIComponent).join("/");
+      const response = await fetch(
+        `${GITHUB_API_BASE}/repos/${repoFullName}/contents/${safePath}?ref=${encodeURIComponent(ref)}`,
+        {
+          headers: { Authorization: `Bearer ${token}`, ...GH_HEADERS },
+        }
+      );
+      if (!response.ok) {
+        return err(
+          new Error(
+            `GitHub contents API error ${response.status}: ${await response.text()}`
+          )
+        );
+      }
+      const data = (await response.json()) as {
+        content: string;
+        sha: string;
+        encoding: string;
+      };
+      const decoded = Buffer.from(
+        data.content.replace(/\n/g, ""),
+        "base64"
+      ).toString("utf-8");
+      return ok({ content: decoded, sha: data.sha });
+    } catch (error) {
+      return err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  async createBranch(
+    repoFullName: string,
+    branchName: string,
+    fromSha: string,
+    token: string
+  ): Promise<Result<void>> {
+    try {
+      const response = await fetch(
+        `${GITHUB_API_BASE}/repos/${repoFullName}/git/refs`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            ...GH_HEADERS,
+          },
+          body: JSON.stringify({
+            ref: `refs/heads/${branchName}`,
+            sha: fromSha,
+          }),
+        }
+      );
+      if (!response.ok) {
+        return err(
+          new Error(
+            `Failed to create branch "${branchName}": ${response.status} ${await response.text()}`
+          )
+        );
+      }
+      return ok(undefined);
+    } catch (error) {
+      return err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  async createOrUpdateFile(
+    repoFullName: string,
+    filePath: string,
+    content: string,
+    commitMessage: string,
+    branchName: string,
+    currentFileSha: string | null,
+    token: string
+  ): Promise<Result<CommitResult>> {
+    try {
+      const safePath = filePath.split("/").map(encodeURIComponent).join("/");
+      const payload: Record<string, unknown> = {
+        message: commitMessage,
+        content: Buffer.from(content, "utf-8").toString("base64"),
+        branch: branchName,
+      };
+      if (currentFileSha) payload.sha = currentFileSha;
+
+      const response = await fetch(
+        `${GITHUB_API_BASE}/repos/${repoFullName}/contents/${safePath}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            ...GH_HEADERS,
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+      if (!response.ok) {
+        return err(
+          new Error(
+            `Failed to write file "${filePath}": ${response.status} ${await response.text()}`
+          )
+        );
+      }
+      const data = (await response.json()) as { commit: { sha: string } };
+      return ok({ commitSha: data.commit.sha });
+    } catch (error) {
+      return err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  async createPullRequest(
+    repoFullName: string,
+    title: string,
+    body: string,
+    headBranch: string,
+    baseBranch: string,
+    token: string
+  ): Promise<Result<number>> {
+    try {
+      const response = await fetch(
+        `${GITHUB_API_BASE}/repos/${repoFullName}/pulls`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            ...GH_HEADERS,
+          },
+          body: JSON.stringify({
+            title,
+            body,
+            head: headBranch,
+            base: baseBranch,
+          }),
+        }
+      );
+      if (!response.ok) {
+        return err(
+          new Error(
+            `Failed to create pull request: ${response.status} ${await response.text()}`
+          )
+        );
+      }
+      const data = (await response.json()) as { number: number };
+      return ok(data.number);
+    } catch (error) {
+      return err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
   private buildCommentBody(finding: AuditFinding): string {
-    const severityEmoji: Record<string, string> = {
+    const emoji: Record<string, string> = {
       critical: "🚨",
       high: "🔴",
       medium: "🟡",
       low: "🔵",
       info: "ℹ️",
     };
-
-    const emoji = severityEmoji[finding.severity] ?? "⚠️";
-
-    let body = `## ${emoji} RepoShield AI — ${finding.title}\n\n`;
+    let body = `## ${emoji[finding.severity] ?? "⚠️"} RepoShield AI — ${finding.title}\n\n`;
     body += `**Severity:** \`${finding.severity.toUpperCase()}\` | **Category:** \`${finding.category}\`\n\n`;
     body += `${finding.description}\n\n`;
     body += `### Suggested Fix\n${finding.suggestion}\n`;
-
     if (finding.owaspReference) {
       body += `\n> **OWASP Reference:** ${finding.owaspReference}\n`;
     }
-
     if (finding.debtMinutes > 0) {
       body += `\n> **Technical Debt:** ~${finding.debtMinutes} minutes to resolve\n`;
     }
-
     body += `\n---\n*Powered by [RepoShield AI](https://reposhield.ai)*`;
     return body;
   }
@@ -202,19 +345,15 @@ export class GitHubApiClient implements IGitHubClient {
     const now = Math.floor(Date.now() / 1000);
     const header = { alg: "RS256", typ: "JWT" };
     const payload = { iat: now - 60, exp: now + 600, iss: this.githubAppId };
-
     const encode = (obj: object) =>
       Buffer.from(JSON.stringify(obj)).toString("base64url");
-
     const headerB64 = encode(header);
     const payloadB64 = encode(payload);
     const unsigned = `${headerB64}.${payloadB64}`;
-
     const { createSign } = await import("crypto");
     const sign = createSign("RSA-SHA256");
     sign.update(unsigned);
     const signature = sign.sign(this.githubPrivateKey, "base64url");
-
     return `${unsigned}.${signature}`;
   }
 }
