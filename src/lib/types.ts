@@ -10,6 +10,11 @@ export function err<E>(error: E): Result<never, E> {
   return { success: false, error };
 }
 
+export interface RulesProfile {
+  source: "custom" | "default";
+  rulesMarkdown: string;
+}
+
 export type AIProvider = "openai" | "anthropic";
 
 export type SeverityLevel = "critical" | "high" | "medium" | "low" | "info";

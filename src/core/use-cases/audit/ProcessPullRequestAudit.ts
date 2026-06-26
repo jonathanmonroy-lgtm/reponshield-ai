@@ -8,7 +8,7 @@ import {
   type PullRequestAudit,
 } from "@/core/entities/PullRequestAudit";
 import { err } from "@/lib/types";
-import type { Result } from "@/lib/types";
+import type { Result, RulesProfile } from "@/lib/types";
 import { randomUUID } from "crypto";
 
 export interface ParsedDiff {
@@ -27,7 +27,8 @@ export interface ParsedDiff {
 export interface IAuditAIEngine {
   analyzeDiff(
     diff: ParsedDiff,
-    repoFullName: string
+    repoFullName: string,
+    rulesProfile?: RulesProfile
   ): Promise<Result<Omit<AuditFinding, "id">[]>>;
 }
 

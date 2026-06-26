@@ -3,7 +3,7 @@ import type { IAuditAIEngine, ParsedDiff } from "@/core/use-cases/audit/ProcessP
 import type { AuditFinding } from "@/core/entities/PullRequestAudit";
 import { buildAuditMessages, parseAuditResponse } from "@/services/audit/AuditPromptBuilder";
 import { ok, err } from "@/lib/types";
-import type { Result } from "@/lib/types";
+import type { Result, RulesProfile } from "@/lib/types";
 
 export class AuditAIEngine implements IAuditAIEngine {
   constructor(
@@ -13,10 +13,11 @@ export class AuditAIEngine implements IAuditAIEngine {
 
   async analyzeDiff(
     diff: ParsedDiff,
-    repoFullName: string
+    repoFullName: string,
+    rulesProfile?: RulesProfile
   ): Promise<Result<Omit<AuditFinding, "id">[]>> {
     try {
-      const messages = buildAuditMessages(diff, repoFullName);
+      const messages = buildAuditMessages(diff, repoFullName, rulesProfile);
       const result = await this.provider.complete({
         model: this.model,
         messages,

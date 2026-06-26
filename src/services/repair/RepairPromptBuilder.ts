@@ -1,7 +1,8 @@
 import type { AIMessage } from "@/infrastructure/ai/IAIProvider";
 import type { AuditFinding } from "@/core/entities/PullRequestAudit";
+import type { RulesProfile } from "@/lib/types";
 
-const SYSTEM_PROMPT = `You are RepoShield AutoFix, an enterprise-grade security patch generator.
+const BASE_SYSTEM_PROMPT = `You are RepoShield AutoFix, an enterprise-grade security patch generator.
 Given a list of critical security vulnerabilities and the complete file content, generate minimal, surgical patches.
 
 Rules (non-negotiable):
@@ -14,6 +15,18 @@ Rules (non-negotiable):
 - Never break compilation, syntax, or existing tests.
 - Return ONLY valid JSON — no markdown fences, no prose outside the JSON object.`;
 
+function buildRepairSystemPrompt(rulesProfile?: RulesProfile): string {
+  if (rulesProfile?.source !== "custom") return BASE_SYSTEM_PROMPT;
+
+  return (
+    BASE_SYSTEM_PROMPT +
+    `\n\nORGANIZATION COMPLIANCE RULES:\n` +
+    `The repository owner enforces these additional constraints. ` +
+    `Ensure the patched code does not introduce any violation of these rules:\n\n` +
+    rulesProfile.rulesMarkdown
+  );
+}
+
 export interface RepairResponse {
   patchedContent: string;
   changesSummary: string;
@@ -22,7 +35,8 @@ export interface RepairResponse {
 export function buildRepairMessages(
   filePath: string,
   fileContent: string,
-  findings: AuditFinding[]
+  findings: AuditFinding[],
+  rulesProfile?: RulesProfile
 ): AIMessage[] {
   const vulnList = findings
     .map(
@@ -45,7 +59,7 @@ export function buildRepairMessages(
     `}`;
 
   return [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: buildRepairSystemPrompt(rulesProfile) },
     { role: "user", content: userMessage },
   ];
 }

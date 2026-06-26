@@ -3,11 +3,11 @@ import type { AuditFinding } from "@/core/entities/PullRequestAudit";
 import type { AIMessage } from "@/infrastructure/ai/IAIProvider";
 import { OWASP_TOP_10, TECHNICAL_DEBT_CATEGORIES } from "@/lib/constants";
 import { DiffAnalyzer } from "@/services/audit/DiffAnalyzer";
-import type { SeverityLevel, AuditCategory } from "@/lib/types";
+import type { SeverityLevel, AuditCategory, RulesProfile } from "@/lib/types";
 
 const diffAnalyzer = new DiffAnalyzer();
 
-const SYSTEM_PROMPT = `You are RepoShield AI, an expert code auditor specializing in:
+const BASE_SYSTEM_PROMPT = `You are RepoShield AI, an expert code auditor specializing in:
 1. Technical debt detection (complexity, duplication, poor patterns)
 2. Security vulnerabilities (OWASP Top 10)
 3. Compliance issues (GDPR, HIPAA data handling, auth patterns)
@@ -27,6 +27,19 @@ Rules:
 - Always cite the exact filePath and lineEnd from the diff.
 - Maximum 20 findings per diff. Prioritize by severity.
 - Return ONLY valid JSON, no markdown code fences.`;
+
+function buildSystemPrompt(rulesProfile?: RulesProfile): string {
+  if (rulesProfile?.source !== "custom") return BASE_SYSTEM_PROMPT;
+
+  return (
+    BASE_SYSTEM_PROMPT +
+    `\n\nORGANIZATION-SPECIFIC COMPLIANCE RULES (MANDATORY):\n` +
+    `The repository owner has defined the following custom engineering standards. ` +
+    `You MUST treat ANY violation of these rules as severity "critical" with category "compliance". ` +
+    `This requirement overrides the general severity guidelines — if code violates a rule below, it is always "critical".\n\n` +
+    rulesProfile.rulesMarkdown
+  );
+}
 
 export interface RawAuditFinding {
   filePath: string;
@@ -48,7 +61,8 @@ export interface AuditResponseSchema {
 
 export function buildAuditMessages(
   diff: ParsedDiff,
-  repoFullName: string
+  repoFullName: string,
+  rulesProfile?: RulesProfile
 ): AIMessage[] {
   const truncated = diffAnalyzer.truncateForTokenLimit(diff);
   const serialized = diffAnalyzer.serialize(truncated);
@@ -79,7 +93,7 @@ ${serialized}
 \`\`\``;
 
   return [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: buildSystemPrompt(rulesProfile) },
     { role: "user", content: userMessage },
   ];
 }
