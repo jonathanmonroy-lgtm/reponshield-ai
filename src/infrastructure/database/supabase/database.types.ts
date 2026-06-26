@@ -367,10 +367,42 @@ export interface Database {
         };
         Relationships: [];
       };
+      github_app_installations: {
+        Row: {
+          id: number;
+          organization_id: string | null;
+          account_login: string;
+          account_type: string;
+          status: "active" | "suspended" | "deleted";
+          installed_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id: number;
+          organization_id?: string | null;
+          account_login: string;
+          account_type: string;
+          status?: "active" | "suspended" | "deleted";
+          installed_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: number;
+          organization_id?: string | null;
+          account_login?: string;
+          account_type?: string;
+          status?: "active" | "suspended" | "deleted";
+          installed_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
-    Enums: Record<string, never>;
+    Enums: {
+      installation_status: "active" | "suspended" | "deleted";
+    };
     CompositeTypes: Record<string, never>;
   };
 }

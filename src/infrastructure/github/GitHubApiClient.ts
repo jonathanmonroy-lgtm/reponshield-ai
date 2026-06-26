@@ -8,6 +8,7 @@ import type {
   FileContent,
   CommitResult,
 } from "@/core/repositories/IGitHubClient";
+import { installationTokenCache } from "@/infrastructure/github/InstallationTokenCache";
 
 interface GitHubInstallationTokenResponse {
   token: string;
@@ -20,8 +21,6 @@ const GH_HEADERS = {
 } as const;
 
 export class GitHubApiClient implements IGitHubClient {
-  private tokenCache = new Map<string, { token: string; expiresAt: Date }>();
-
   constructor(
     private readonly githubAppId: string,
     private readonly githubPrivateKey: string
@@ -30,9 +29,9 @@ export class GitHubApiClient implements IGitHubClient {
   async getInstallationToken(
     installationId: string
   ): Promise<Result<string>> {
-    const cached = this.tokenCache.get(installationId);
-    if (cached && cached.expiresAt > new Date(Date.now() + 60_000)) {
-      return ok(cached.token);
+    const cached = installationTokenCache.get(installationId);
+    if (cached) {
+      return ok(cached);
     }
 
     let lastError: Error = new Error("Unknown error");
@@ -53,10 +52,11 @@ export class GitHubApiClient implements IGitHubClient {
         }
         const data =
           (await response.json()) as GitHubInstallationTokenResponse;
-        this.tokenCache.set(installationId, {
-          token: data.token,
-          expiresAt: new Date(data.expires_at),
-        });
+        installationTokenCache.set(
+          installationId,
+          data.token,
+          new Date(data.expires_at)
+        );
         return ok(data.token);
       } catch (error) {
         lastError =
@@ -342,18 +342,25 @@ export class GitHubApiClient implements IGitHubClient {
   }
 
   private async createJWT(): Promise<string> {
-    const now = Math.floor(Date.now() / 1000);
-    const header = { alg: "RS256", typ: "JWT" };
-    const payload = { iat: now - 60, exp: now + 600, iss: this.githubAppId };
-    const encode = (obj: object) =>
-      Buffer.from(JSON.stringify(obj)).toString("base64url");
-    const headerB64 = encode(header);
-    const payloadB64 = encode(payload);
-    const unsigned = `${headerB64}.${payloadB64}`;
-    const { createSign } = await import("crypto");
-    const sign = createSign("RSA-SHA256");
-    sign.update(unsigned);
-    const signature = sign.sign(this.githubPrivateKey, "base64url");
-    return `${unsigned}.${signature}`;
+    return createGitHubAppJWT(this.githubAppId, this.githubPrivateKey);
   }
+}
+
+export async function createGitHubAppJWT(
+  appId: string,
+  privateKey: string
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const payload = { iat: now - 60, exp: now + 600, iss: appId };
+  const encode = (obj: object) =>
+    Buffer.from(JSON.stringify(obj)).toString("base64url");
+  const headerB64 = encode(header);
+  const payloadB64 = encode(payload);
+  const unsigned = `${headerB64}.${payloadB64}`;
+  const { createSign } = await import("crypto");
+  const sign = createSign("RSA-SHA256");
+  sign.update(unsigned);
+  const signature = sign.sign(privateKey, "base64url");
+  return `${unsigned}.${signature}`;
 }

@@ -15,7 +15,7 @@ export interface RulesProfile {
   rulesMarkdown: string;
 }
 
-export type AIProvider = "openai" | "anthropic";
+export type AIProvider = "openai" | "anthropic" | "gemini";
 
 export type SeverityLevel = "critical" | "high" | "medium" | "low" | "info";
 

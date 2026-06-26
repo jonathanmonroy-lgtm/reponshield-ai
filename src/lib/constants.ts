@@ -14,11 +14,16 @@ export const AI_PROVIDERS = {
       "claude-opus-4-8",
     ],
   },
+  gemini: {
+    name: "Google Gemini",
+    models: ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+  },
 } as const;
 
 export const DEFAULT_AI_MODEL: Record<string, string> = {
   openai: "gpt-4o-mini",
   anthropic: "claude-sonnet-4-6",
+  gemini: "gemini-2.5-flash",
 };
 
 export const MAX_DIFF_TOKENS = 8000;

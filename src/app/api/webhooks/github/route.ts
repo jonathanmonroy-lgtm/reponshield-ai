@@ -7,6 +7,15 @@ import { DiffAnalyzer } from "@/services/audit/DiffAnalyzer";
 import { ProcessPullRequestAuditUseCase } from "@/core/use-cases/audit/ProcessPullRequestAudit";
 import { AutoFixEngine } from "@/services/repair/AutoFixEngine";
 import { buildContainer } from "@/lib/container";
+import { installationTokenCache } from "@/infrastructure/github/InstallationTokenCache";
+import {
+  handleInstallationEvent,
+  handleInstallationRepositoriesEvent,
+} from "@/app/api/webhooks/github/_lifecycle-handlers";
+import type {
+  GitHubInstallationEvent,
+  GitHubInstallationRepositoriesEvent,
+} from "@/app/api/webhooks/github/_lifecycle-handlers";
 import type { AIProvider } from "@/lib/types";
 
 const diffAnalyzer = new DiffAnalyzer();
@@ -46,24 +55,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: message }, { status: 401 });
   }
 
-  const event = request.headers.get("x-github-event");
-  if (event !== "pull_request") {
-    return NextResponse.json({ received: true, skipped: true });
-  }
-
-  let payload: GitHubPREvent;
-  try {
-    payload = JSON.parse(rawBody) as GitHubPREvent;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
-  }
-
-  const triggeringActions = ["opened", "synchronize", "reopened"];
-  if (!triggeringActions.includes(payload.action)) {
-    return NextResponse.json({ received: true, skipped: true });
-  }
-
+  const event = request.headers.get("x-github-event") ?? "unknown";
   const deliveryId = request.headers.get("x-github-delivery");
+
   if (!deliveryId) {
     return NextResponse.json(
       { error: "Missing X-GitHub-Delivery header" },
@@ -71,20 +65,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const installationId = payload.installation?.id?.toString();
-  if (!installationId) {
-    return NextResponse.json(
-      { error: "No installation ID in payload" },
-      { status: 400 }
-    );
+  let payload: unknown;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
   }
 
   const container = buildContainer();
   const { db, repos, useCases } = container;
 
-  // Idempotency guard: insert delivery_id before any processing.
-  // A unique-constraint violation (23505) means GitHub is retrying a delivery
-  // we already handled — return 200 so GitHub stops retrying.
+  // Idempotency guard runs for ALL event types before any processing.
+  // A unique-constraint violation (23505) means GitHub is retrying an already
+  // handled delivery — return 200 so GitHub stops retrying.
   const { error: deliveryInsertError } = await db
     .from("webhook_deliveries")
     .insert({ delivery_id: deliveryId, event_type: event, processed: false });
@@ -93,8 +86,63 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (deliveryInsertError.code === "23505") {
       return NextResponse.json({ received: true, deduplicated: true });
     }
-    // Non-fatal: DB unavailable — log and continue rather than drop the event.
     console.error("[webhook] delivery tracking insert failed:", deliveryInsertError.message);
+  }
+
+  let result: NextResponse;
+
+  switch (event) {
+    case "installation":
+      result = await handleInstallationEvent(
+        payload as GitHubInstallationEvent,
+        db,
+        installationTokenCache
+      );
+      break;
+
+    case "installation_repositories":
+      result = await handleInstallationRepositoriesEvent(
+        payload as GitHubInstallationRepositoriesEvent,
+        db
+      );
+      break;
+
+    case "pull_request":
+      result = await handlePullRequestEvent(
+        payload as GitHubPREvent,
+        container
+      );
+      break;
+
+    default:
+      result = NextResponse.json({ received: true, skipped: true });
+  }
+
+  await db
+    .from("webhook_deliveries")
+    .update({ processed: true })
+    .eq("delivery_id", deliveryId);
+
+  return result;
+}
+
+async function handlePullRequestEvent(
+  payload: GitHubPREvent,
+  container: ReturnType<typeof buildContainer>
+): Promise<NextResponse> {
+  const { db, repos, useCases } = container;
+
+  const triggeringActions = ["opened", "synchronize", "reopened"];
+  if (!triggeringActions.includes(payload.action)) {
+    return NextResponse.json({ received: true, skipped: true });
+  }
+
+  const installationId = payload.installation?.id?.toString();
+  if (!installationId) {
+    return NextResponse.json(
+      { error: "No installation ID in payload" },
+      { status: 400 }
+    );
   }
 
   const repoResult = await repos.repoRepo.findByGithubRepoId(
@@ -214,7 +262,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Append one row to audit_logs for dashboard "failures prevented" metrics
   const audit = auditResult.data;
   const criticalCount = audit.findings.filter((f) => f.severity === "critical").length;
   const highCount     = audit.findings.filter((f) => f.severity === "high").length;
@@ -245,7 +292,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     console.error("[audit_log] insert failed:", logError.message);
   }
 
-  // Fire AutoFix asynchronously for enterprise orgs when critical findings exist
   if (criticalCount > 0) {
     const autoFixEngine = new AutoFixEngine(
       aiProvider,
@@ -263,12 +309,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       aiModel: model,
     });
   }
-
-  // Mark delivery as fully processed so idempotency checks remain meaningful.
-  await db
-    .from("webhook_deliveries")
-    .update({ processed: true })
-    .eq("delivery_id", deliveryId);
 
   return NextResponse.json({
     success: true,
