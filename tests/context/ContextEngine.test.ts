@@ -30,7 +30,7 @@ describe("ContextEngine", () => {
       expect(profile.source).toBe("custom");
     });
 
-    it("returns the exact file content as rulesMarkdown", async () => {
+    it("returns rulesMarkdown that contains the file content (wrapped in safe-context delimiters)", async () => {
       const rulesContent = "## Forbidden Libraries\n- It is strictly prohibited to use axios.";
       const client = makeGitHubClient({
         getFileContent: vi.fn().mockResolvedValue(
@@ -40,7 +40,8 @@ describe("ContextEngine", () => {
       const engine = new ContextEngine(client);
       const profile = await engine.fetchRulesProfile("acme/backend", "main", "ghp_token");
 
-      expect(profile.rulesMarkdown).toBe(rulesContent);
+      expect(profile.rulesMarkdown).toContain(rulesContent);
+      expect(profile.rulesMarkdown).toContain("--- BEGIN ORGANIZATION CODING RULES ---");
     });
 
     it("fetches exactly .reposhield/rules.md from the correct repo and ref", async () => {
@@ -60,7 +61,7 @@ describe("ContextEngine", () => {
       );
     });
 
-    it("preserves multi-section custom rules verbatim", async () => {
+    it("preserves multi-section custom rules inside safe-context wrapper", async () => {
       const multilineRules = `# Acme Engineering Rules
 
 ## Forbidden Libraries
@@ -79,7 +80,10 @@ describe("ContextEngine", () => {
       const engine = new ContextEngine(client);
       const profile = await engine.fetchRulesProfile("acme/backend", "main", "ghp_token");
 
-      expect(profile.rulesMarkdown).toBe(multilineRules);
+      expect(profile.rulesMarkdown).toContain("# Acme Engineering Rules");
+      expect(profile.rulesMarkdown).toContain("- axios: use native fetch");
+      expect(profile.rulesMarkdown).toContain("--- BEGIN ORGANIZATION CODING RULES ---");
+      expect(profile.rulesMarkdown).toContain("--- END ORGANIZATION CODING RULES ---");
     });
   });
 

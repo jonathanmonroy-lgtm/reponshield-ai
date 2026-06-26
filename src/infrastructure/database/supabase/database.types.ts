@@ -346,6 +346,27 @@ export interface Database {
         };
         Relationships: [];
       };
+      webhook_deliveries: {
+        Row: {
+          delivery_id: string;
+          event_type: string;
+          processed: boolean;
+          received_at: string;
+        };
+        Insert: {
+          delivery_id: string;
+          event_type: string;
+          processed?: boolean;
+          received_at?: string;
+        };
+        Update: {
+          delivery_id?: string;
+          event_type?: string;
+          processed?: boolean;
+          received_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

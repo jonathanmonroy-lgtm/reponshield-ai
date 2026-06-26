@@ -10,8 +10,16 @@ const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 const SALT_LENGTH = 16;
 
+// Explicit scrypt parameters — must never change without a key-rotation migration.
+// N=16384 (2^14): CPU/memory cost; r=8: block size; p=1: parallelization; keyLen=32: AES-256.
+const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, keyLen: 32 } as const;
+
 function deriveKey(secret: string, salt: Buffer): Buffer {
-  return scryptSync(secret, salt, 32) as Buffer;
+  return scryptSync(secret, salt, SCRYPT_PARAMS.keyLen, {
+    N: SCRYPT_PARAMS.N,
+    r: SCRYPT_PARAMS.r,
+    p: SCRYPT_PARAMS.p,
+  }) as Buffer;
 }
 
 export class ApiKeyEncryption {

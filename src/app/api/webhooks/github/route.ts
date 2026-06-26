@@ -63,6 +63,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ received: true, skipped: true });
   }
 
+  const deliveryId = request.headers.get("x-github-delivery");
+  if (!deliveryId) {
+    return NextResponse.json(
+      { error: "Missing X-GitHub-Delivery header" },
+      { status: 400 }
+    );
+  }
+
   const installationId = payload.installation?.id?.toString();
   if (!installationId) {
     return NextResponse.json(
@@ -73,6 +81,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const container = buildContainer();
   const { db, repos, useCases } = container;
+
+  // Idempotency guard: insert delivery_id before any processing.
+  // A unique-constraint violation (23505) means GitHub is retrying a delivery
+  // we already handled — return 200 so GitHub stops retrying.
+  const { error: deliveryInsertError } = await db
+    .from("webhook_deliveries")
+    .insert({ delivery_id: deliveryId, event_type: event, processed: false });
+
+  if (deliveryInsertError) {
+    if (deliveryInsertError.code === "23505") {
+      return NextResponse.json({ received: true, deduplicated: true });
+    }
+    // Non-fatal: DB unavailable — log and continue rather than drop the event.
+    console.error("[webhook] delivery tracking insert failed:", deliveryInsertError.message);
+  }
 
   const repoResult = await repos.repoRepo.findByGithubRepoId(
     payload.repository.id
@@ -240,6 +263,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       aiModel: model,
     });
   }
+
+  // Mark delivery as fully processed so idempotency checks remain meaningful.
+  await db
+    .from("webhook_deliveries")
+    .update({ processed: true })
+    .eq("delivery_id", deliveryId);
 
   return NextResponse.json({
     success: true,
